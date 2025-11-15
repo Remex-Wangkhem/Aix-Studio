@@ -1,0 +1,101 @@
+Build a production-ready web application (React front-end, Next.js backend) that functions as:
+- An OpenWebUI-like user interface for interacting with multiple LLMs (chat playground, conversation history, model settings, file uploads, streaming).
+- A full Admin panel (user & role management, model connectors, endpoint generation, analytics).
+- Billing & subscription controls (Stripe integration, plans/costs, invoices).
+- Multi-host model connectors: allow registering models hosted on other servers (HTTP REST, WebSocket, gRPC, or API-key-based providers). Enable proxying and modifying requests/responses transparently.
+- Endpoint-as-a-product: Admins create logical API endpoints that map to an underlying model but override system prompt, token limit, temperature, and other runtime settings — and expose these endpoints (public/private) for external apps.
+- Security, rate-limits, audit logs, and basic production ops (env, docker-compose, CI).
+
+Key requirements (must be implemented and working):
+1. Tech stack:
+   - Frontend: React, CSS, componentized (chat, settings, admin).
+   - Backend: Next.js, Entity Framework Core (Postgres), Redis (caching & rate-limiting), Hangfire (jobs) optional.
+   - DB: PostgreSQL.
+   - Billing: Stripe integration for subscriptions and metered usage.
+   - Auth: JWT for API + session tokens for UI, RBAC with roles (admin, developer, user).
+   - Logs: Audit trail for model calls and admin actions; store usage per API key and per endpoint.
+2. Core UX features (OpenWebUI parity):
+   - Chat playground with streaming response support, message roles (system/user/assistant), message editing, rerun, and clear conversation.
+   - Model selector with per-model settings (temperature, top_p, max_tokens, stop tokens, system prompt).
+   - File upload (PDF, TXT) to include in context / run RAG pipelines (extract text, store vectors optional).
+   - Conversation history and favorites, export conversation as JSON or text.
+   - Token/price estimator UI that shows approximate cost per request (based on bytes/tokens).
+3. Model Connector & Manager:
+   - Admin UI to register model connectors: name, protocol (REST/WS/gRPC), base URL, auth type (none, api_key, bearer), default settings.
+   - Health check and live status.
+   - Support multiple models pointing to same host (different routes or model ids).
+4. Endpoint-as-a-product:
+   - Admin creates named Endpoint (e.g., `/api/v1/abx/doctor`, `/api/v1/abx/engineer`) with:
+     * linked model connector
+     * system prompt override (editable)
+     * temperature, max_tokens, top_p, token_limit_per_request
+     * rate limit & per-key quota
+     * optional prompt templates (placeholders)
+     * access type: Public API key / Private (only used in UI)
+   - System must generate an actual API route and API-key credential for external apps to call — backend must validate API key and apply the endpoint's settings when proxying to the model.
+   - Example: Model "Abx" at `http://192.168.75.9:8080` has two endpoints:
+     * `POST /api/x/abx/doctor` — adds system prompt: "You are a diagnostic doctor. Answer medically and cite guidelines when possible."
+     * `POST /api/x/abx/engineer` — adds system prompt: "You are a senior software engineer. Provide clear technical steps and code samples."
+5. Runtime behavior change:
+   - Any setting changed in Admin (system prompt, temp, token limits) immediately affects subsequent requests to that endpoint.
+   - Provide a toggle to **freeze** an endpoint (snapshot settings) and a toggle to **inherit default model settings**.
+6. Billing & metering:
+   - Admin defines subscription plans, free trial, and per-token pricing.
+   - Create API keys tied to customer accounts and plan quotas.
+   - Track usage (tokens consumed) per API key and charge via Stripe (invoices or metered billing). Show dashboard stats: daily calls, tokens, revenue.
+7. Developer/API features:
+   - API Key management: issue, revoke, rotate keys; assign scopes (read, write, admin).
+   - Expose generated endpoints with OpenAPI spec and Postman collection export.
+   - Webhooks: on invoice, on usage threshold, optional callback for responses.
+8. Security & scale:
+   - Rate limiting per API key & global.
+   - Audit logs for admin changes and model calls.
+   - TLS assumed on deployment (deploy guide includes reverse proxy Nginx and Let's Encrypt).
+9. Tests & QA:
+   - Unit tests for backend services.
+   - Integration tests for model connector (mock model).
+   - End-to-end tests for core flows (login, create model, create endpoint, call endpoint).
+   - Provide Postman or curl examples to verify behavior.
+10. Deliverables (must be produced by the builder):
+    - Angular project with components, services, and docs.
+    - Next.js project with controllers, services, EF migrations.
+    - DB migration scripts and seed data (admin user, sample model "Abx" pointing to `http://192.168.75.9:8080`).
+    - README with run instructions (dev and production), env variables, Docker compose, and Stripe test setup.
+    - Test suite runnable with `dotnet test` and `npm test` / e2e.
+    - Postman collection & OpenAPI spec for generated endpoints.
+    - Small demo seed: create two endpoints for Abx (`doctor`, `engineer`) that are functional in dev mode with a mock adapter if the real host is unreachable.
+
+Non-functional requirements:
+- Responsive UI, accessible controls, basic i18n support.
+- Logging retention configurable.
+- Clean, maintainable code with comments and README.
+
+Acceptance criteria (must pass automated checks):
+- Create model connector "Abx" with URL `http://192.168.75.9:8080` and health OK (or mocked).
+- Create two endpoints for Abx: `/api/x/abx/doctor` and `/api/x/abx/engineer`.
+- Call `/api/x/abx/doctor` with sample payload and receive a proxied response with the doctor system prompt applied.
+- Changing temperature in Admin must change the behavior (tests will inspect outgoing proxied payload to remote model).
+- Billing: create a test customer, attach API key, simulate 1000 tokens used and generate an invoice (Stripe test mode).
+- Generate OpenAPI spec exposing both endpoints and API key authentication info.
+
+UI text / Branding:
+- Portal name everywhere: **EVEDA AIX STUDIO**
+- Branding assets: placeholder logo, color palette (deep blue, teal, white).
+
+Security & Compliance Notes:
+- Provide instructions for enabling GDPR/HIPAA hygiene (data retention, encryption at rest, minimal PII logging) but do not implement HIPAA-specific features without extra configuration.
+
+Developer hints for builder:
+- Implement a ModelAdapter interface with concrete adapters: RestModelAdapter, WebSocketModelAdapter, OpenAIAdapter (optional).
+- For local dev, include a MockModelAdapter that returns deterministic responses including echoing system prompt and settings so tests can validate behavior.
+- Use ASP.NET middleware to apply endpoint-specific settings (inject System Prompt + settings before forwarding).
+- Use Redis to count tokens (or simpler: count characters / 4 as token estimation).
+- When creating endpoints, auto-generate a secure API key & return copy-only once.
+
+End user test examples (include these in the project):
+1) Admin creates model "Abx" → registers `http://192.168.75.9:8080` as REST, keyless.
+2) Admin creates endpoint "AbxDoctor" with system prompt = "You are a doctor..." and temperature = 0.2, route `/api/x/abx/doctor`.
+3) Dev calls:
+   curl -X POST "https://{host}/api/x/abx/doctor" -H "x-api-key: <key>" -d '{"input":"Patient has fever"}'
+   - Expected: backend sends request to `http://192.168.75.9:8080` with system prompt inserted and temperature = 0.2, returns model output to caller.
+4) Admin toggles temperature to 0.9 → subsequent calls observe changed `temperature` in proxied payload (test by looking at mock model logs or outbound payload).
